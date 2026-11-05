@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Markdown previewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #eef1f4;
+    --surface: #ffffff;
+    --surface-2: #f6f8fa;
+    --ink: #1b2430;
+    --muted: #64707c;
+    --faint: #a3adb7;
+    --line: #d6dce2;
+    --accent: #0f5c6b;
+    --accent-ink: #ffffff;
+    --accent-soft: #e1eff2;
+    --danger: #a83a2e;
+    --code-bg: #f1f4f7;
+    --code-ink: #243041;
+    --hl-kw: #8b2f8e;
+    --hl-str: #1d6b3f;
+    --hl-num: #a0491c;
+    --hl-cmt: #7a8591;
+    --hl-fn: #0f5c6b;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0f1316;
+      --surface: #171c20;
+      --surface-2: #1e2429;
+      --ink: #e6eaee;
+      --muted: #98a2ad;
+      --faint: #5c6670;
+      --line: #2a3339;
+      --accent: #5bbccb;
+      --accent-ink: #0b1b1f;
+      --accent-soft: #15333a;
+      --danger: #e2735f;
+      --code-bg: #10161a;
+      --code-ink: #d7dde3;
+      --hl-kw: #d58fd6;
+      --hl-str: #86d39e;
+      --hl-num: #f0a26a;
+      --hl-cmt: #6f7b86;
+      --hl-fn: #7fd2dd;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f1316;
+    --surface: #171c20;
+    --surface-2: #1e2429;
+    --ink: #e6eaee;
+    --muted: #98a2ad;
+    --faint: #5c6670;
+    --line: #2a3339;
+    --accent: #5bbccb;
+    --accent-ink: #0b1b1f;
+    --accent-soft: #15333a;
+    --danger: #e2735f;
+    --code-bg: #10161a;
+    --code-ink: #d7dde3;
+    --hl-kw: #d58fd6;
+    --hl-str: #86d39e;
+    --hl-num: #f0a26a;
+    --hl-cmt: #6f7b86;
+    --hl-fn: #7fd2dd;
+  }
+
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+  *, *::before, *::after { box-sizing: inherit; }
+  body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Top bar */
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    flex: none;
+  }
+  .brand {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-right: auto;
+    white-space: nowrap;
+  }
+  .brand small {
+    display: block;
+    font-family: var(--sans);
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    cursor: pointer;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background .12s;
+  }
+  .btn:hover { background: var(--surface-2); }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  .btn .label-short { display: none; }
+
+  /* Mobile pane switch */
+  .switch {
+    display: none;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .switch button {
+    padding: 7px 12px;
+    border: 0;
+    background: var(--surface);
+    cursor: pointer;
+  }
+  .switch button[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  /* Workspace */
+  .work {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    position: relative;
+  }
+  .pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--surface);
+  }
+  .pane.editor { flex: 0 0 var(--editor-w, 46%); }
+  .pane.preview { flex: 1 1 auto; }
+  .divider {
+    flex: none;
+    width: 6px;
+    cursor: col-resize;
+    background: var(--bg);
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    touch-action: none;
+  }
+  .divider:hover, .divider.active { background: var(--accent-soft); }
+
+  .pane-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 42px;
+    flex: none;
+  }
+  .pane-head .name {
+    color: var(--ink);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .pane-head .spacer { flex: 1; }
+  .linkish {
+    background: none;
+    border: 0;
+    padding: 2px 4px;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 13px;
+    border-radius: 4px;
+  }
+  .linkish:hover { background: var(--accent-soft); }
+  .linkish.quiet { color: var(--muted); }
+  .linkish.quiet:hover { color: var(--danger); background: transparent; }
+
+  /* Editor */
+  .editor-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+  textarea {
+    flex: 1 1 auto;
+    width: 100%;
+    border: 0;
+    resize: none;
+    padding: 18px 20px 60px;
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.65;
+    tab-size: 2;
+    outline: none;
+  }
+  textarea::placeholder { color: var(--faint); }
+  .drop {
+    position: absolute;
+    inset: 10px;
+    border: 2px dashed var(--accent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent-soft) 85%, transparent);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    font-weight: 500;
+    pointer-events: none;
+  }
+  .editor-body.dragging .drop { display: flex; }
+  .status {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--muted);
+    background: linear-gradient(to top, var(--surface) 65%, transparent);
+    display: flex;
+    gap: 14px;
+    pointer-events: none;
+  }
+  .status .msg { margin-left: auto; color: var(--accent); }
+  .status .msg.err { color: var(--danger); }
+
+  /* Preview */
+  .preview-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .empty {
+    margin: 64px auto;
+    max-width: 38ch;
+    text-align: center;
+    color: var(--muted);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.6;
+    padding: 0 20px;
+  }
+
+  /* Rendered markdown */
+  .md {
+    max-width: 72ch;
+    margin: 0 auto;
+    padding: 36px 32px 96px;
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.7;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+  .md > :first-child { margin-top: 0; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    font-family: var(--serif);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.012em;
+    margin: 1.6em 0 .55em;
+  }
+  .md h1 { font-size: 2.1em; margin-top: 0; }
+  .md h2 { font-size: 1.55em; padding-bottom: .25em; border-bottom: 1px solid var(--line); }
+  .md h3 { font-size: 1.25em; }
+  .md h4 { font-size: 1.05em; }
+  .md h5, .md h6 { font-size: 1em; color: var(--muted); }
+  .md p, .md ul, .md ol, .md blockquote, .md pre, .md table { margin: 0 0 1.1em; }
+  .md a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .md strong { font-weight: 600; }
+  .md ul, .md ol { padding-left: 1.6em; }
+  .md li + li { margin-top: .25em; }
+  .md li > p { margin-bottom: .5em; }
+  .md li.task { list-style: none; margin-left: -1.6em; padding-left: 0; }
+  .md li.task input { margin: 0 .5em 0 0; vertical-align: -1px; }
+  .md blockquote {
+    margin-left: 0;
+    padding: .2em 0 .2em 1.1em;
+    border-left: 3px solid var(--accent);
+    color: var(--muted);
+    font-style: italic;
+  }
+  .md blockquote > :last-child { margin-bottom: 0; }
+  .md code {
+    font-family: var(--mono);
+    font-size: .86em;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: .12em .38em;
+    border-radius: 4px;
+  }
+  .md pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    line-height: 1.55;
+  }
+  .md pre code { background: none; padding: 0; font-size: .84em; border-radius: 0; }
+  .md hr { border: 0; border-top: 1px solid var(--line); margin: 2.2em 0; }
+  .md img { max-width: 100%; height: auto; border-radius: 6px; }
+  .md .table-wrap { overflow-x: auto; margin: 0 0 1.1em; }
+  .md table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--sans);
+    font-size: .9em;
+    margin: 0;
+  }
+  .md th, .md td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+  .md th { background: var(--surface-2); font-weight: 600; }
+  .md del { color: var(--muted); }
+
+  /* highlight.js token theme */
+  .hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type, .hljs-meta { color: var(--hl-kw); }
+  .hljs-string, .hljs-attr, .hljs-symbol, .hljs-regexp, .hljs-addition { color: var(--hl-str); }
+  .hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable, .hljs-deletion { color: var(--hl-num); }
+  .hljs-comment, .hljs-quote { color: var(--hl-cmt); font-style: italic; }
+  .hljs-title, .hljs-function .hljs-title, .hljs-section, .hljs-name { color: var(--hl-fn); }
+  .hljs-emphasis { font-style: italic; }
+  .hljs-strong { font-weight: 600; }
+
+  /* Off-screen sheet used for PDF rendering: always light, fixed width */
+  .sheet {
+    position: absolute;
+    left: -10000px;
+    top: 0;
+    width: 740px;
+    background: #ffffff;
+    color: #1b2430;
+    --ink: #1b2430;
+    --muted: #64707c;
+    --line: #d6dce2;
+    --accent: #0f5c6b;
+    --surface-2: #f6f8fa;
+    --code-bg: #f1f4f7;
+    --code-ink: #243041;
+    --hl-kw: #8b2f8e; --hl-str: #1d6b3f; --hl-num: #a0491c; --hl-cmt: #7a8591; --hl-fn: #0f5c6b;
+  }
+  .sheet .md { padding: 0; max-width: none; font-size: 14.5px; }
+  .sheet .md pre { white-space: pre-wrap; word-break: break-word; }
+  .sheet .md h1, .sheet .md h2, .sheet .md h3, .sheet .md pre, .sheet .md table, .sheet .md img, .sheet .md blockquote { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Responsive */
+  @media (max-width: 820px) {
+    .bar { padding: 8px 12px; gap: 8px; }
+    .brand small { display: none; }
+    .btn .label-full { display: none; }
+    .btn .label-short { display: inline; }
+    .switch { display: inline-flex; }
+    .divider { display: none; }
+    .pane { flex: 1 1 auto !important; }
+    body[data-view="write"] .pane.preview { display: none; }
+    body[data-view="read"] .pane.editor { display: none; }
+    .md { padding: 24px 18px 80px; font-size: 16px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  /* Print fallback: the preview becomes the page */
+  @media print {
+    :root { color-scheme: light; --bg: #fff; --surface: #fff; --ink: #1b2430; --muted: #64707c; --line: #d6dce2; --accent: #0f5c6b; --code-bg: #f1f4f7; --code-ink: #243041; }
+    body { overflow: visible; height: auto; display: block; }
+    .bar, .pane.editor, .divider, .pane-head { display: none !important; }
+    .pane.preview { display: block !important; }
+    .preview-scroll { overflow: visible; }
+    .md { max-width: none; padding: 0; }
+    .md pre { white-space: pre-wrap; }
+    .md h1, .md h2, .md h3, .md pre, .md table, .md img { break-inside: avoid; }
+  }
+</style>
+</head>
+<body data-view="write">
+
+<header class="bar">
+  <div class="brand">Markdown previewer<small>Paste or upload a .md file, read it rendered, export it as PDF</small></div>
+  <div class="switch" role="group" aria-label="Pane">
+    <button type="button" id="viewWrite" aria-pressed="true">Write</button>
+    <button type="button" id="viewRead" aria-pressed="false">Preview</button>
+  </div>
+  <button type="button" class="btn" id="uploadBtn">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V3M4.5 6.5 8 3l3.5 3.5M2.5 11v2h11v-2"/></svg>
+    <span class="label-full">Upload file</span><span class="label-short">Upload</span>
+  </button>
+  <input type="file" id="fileInput" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" hidden>
+  <button type="button" class="btn primary" id="exportBtn">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v8M4.5 7.5 8 11l3.5-3.5M2.5 13h11"/></svg>
+    <span class="label-full">Export PDF</span><span class="label-short">PDF</span>
+  </button>
+</header>
+
+<main class="work">
+  <section class="pane editor" aria-label="Markdown source">
+    <div class="pane-head">
+      <span class="name" id="fileName">Untitled.md</span>
+      <span class="spacer"></span>
+      <button type="button" class="linkish" id="sampleBtn">Load sample</button>
+      <button type="button" class="linkish quiet" id="clearBtn">Clear</button>
+    </div>
+    <div class="editor-body" id="editorBody">
+      <textarea id="source" spellcheck="false" placeholder="Paste or type markdown here, or drop a .md file anywhere in this panel." aria-label="Markdown source"></textarea>
+      <div class="drop" aria-hidden="true">Drop the file to open it</div>
+      <div class="status"><span id="wordCount">0 words</span><span id="charCount">0 characters</span><span class="msg" id="msg"></span></div>
+    </div>
+  </section>
+
+  <div class="divider" id="divider" role="separator" aria-orientation="vertical" aria-label="Resize panes" tabindex="0"></div>
+
+  <section class="pane preview" aria-label="Rendered preview">
+    <div class="pane-head"><span>Preview</span><span class="spacer"></span><span id="renderNote"></span></div>
+    <div class="preview-scroll" id="previewScroll">
+      <article class="md" id="preview"></article>
+      <div class="empty" id="empty" hidden>Nothing to show yet. Paste some markdown on the left, or upload a file.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  const SAMPLE = `# Field notes: a markdown sample
+
+This document exists so you can see how the previewer renders common markdown before you bring your own. Replace it with anything you like, or drop a \`.md\` file onto the editor.
+
+## Text and emphasis
+
+Regular paragraphs wrap at a comfortable width. You can use *emphasis*, **strong emphasis**, ~~strikethrough~~, and \`inline code\`. Links look like [this one](https://commonmark.org).
+
+> Blockquotes are set off with a rule and a quieter tone. They are useful for pulled quotes or asides.
+
+## Lists
+
+1. Ordered lists keep their numbering
+2. Even when items span
+   multiple lines
+3. And nest when indented
+
+- Unordered lists work too
+  - with nested items
+  - of any depth
+- [x] Task lists render as checkboxes
+- [ ] Unchecked ones too
+
+## Code
+
+\`\`\`js
+function greet(name) {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? "morning" : "afternoon";
+  return \`Good \${part}, \${name}\`;
+}
+\`\`\`
+
+## Tables
+
+| Element | Syntax | Notes |
+|---|---|---|
+| Heading | \`# Text\` | One to six hashes |
+| Bold | \`**text**\` | Two asterisks |
+| Table | pipes and dashes | GitHub flavoured |
+
+---
+
+Export this as a PDF with the button at the top. The layout is laid out for A4 with sensible page breaks.
+`;
+
+  const $ = (id) => document.getElementById(id);
+  const source = $('source');
+  const preview = $('preview');
+  const previewScroll = $('previewScroll');
+  const empty = $('empty');
+  const fileNameEl = $('fileName');
+  const wordCount = $('wordCount');
+  const charCount = $('charCount');
+  const msg = $('msg');
+  const renderNote = $('renderNote');
+  const editorBody = $('editorBody');
+  const exportBtn = $('exportBtn');
+
+  let fileName = 'Untitled.md';
+  let msgTimer = null;
+
+  // ---------- marked setup ----------
+  // marked 12 renderer signatures: code(code, lang), table(header, body), listitem(text, task, checked), checkbox(checked)
+  const renderer = new marked.Renderer();
+  renderer.code = function (code, infostring) {
+    const lang = (infostring || '').trim().split(/\s+/)[0];
+    let html;
+    if (lang && hljs.getLanguage(lang)) {
+      html = hljs.highlight(code, { language: lang }).value;
+    } else {
+      html = hljs.highlightAuto(code).value;
+    }
+    return `<pre><code class="hljs${lang ? ' language-' + escapeAttr(lang) : ''}">${html}</code></pre>\n`;
+  };
+  renderer.table = function (header, body) {
+    return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>\n`;
+  };
+  renderer.checkbox = function (checked) {
+    return `<input type="checkbox" disabled${checked ? ' checked' : ''}> `;
+  };
+  renderer.listitem = function (text, task) {
+    return `<li${task ? ' class="task"' : ''}>${text}</li>\n`;
+  };
+  function escapeAttr(s) { return String(s).replace(/[^\w-]/g, ''); }
+
+  marked.setOptions({ gfm: true, breaks: false, renderer });
+
+  function render() {
+    const text = source.value;
+    const trimmed = text.trim();
+    const words = trimmed ? trimmed.split(/\s+/).length : 0;
+    wordCount.textContent = words === 1 ? '1 word' : `${words.toLocaleString()} words`;
+    charCount.textContent = `${text.length.toLocaleString()} characters`;
+
+    if (!trimmed) {
+      preview.innerHTML = '';
+      empty.hidden = false;
+      renderNote.textContent = '';
+      return;
+    }
+    empty.hidden = true;
+    let html;
+    try {
+      html = marked.parse(text);
+    } catch (e) {
+      html = `<p>Could not parse this markdown: ${String(e.message || e)}</p>`;
+    }
+    preview.innerHTML = DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+    preview.querySelectorAll('a[href]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
+    renderNote.textContent = '';
+  }
+
+  let renderTimer = null;
+  function scheduleRender() {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => { render(); saveDraft(); }, 120);
+  }
+
+  // ---------- messages ----------
+  function say(text, isError) {
+    msg.textContent = text;
+    msg.classList.toggle('err', !!isError);
+    clearTimeout(msgTimer);
+    if (text) msgTimer = setTimeout(() => { msg.textContent = ''; }, 4000);
+  }
+
+  // ---------- drafts (per-viewer convenience) ----------
+  function saveDraft() {
+    try {
+      localStorage.setItem('mdp:draft', source.value);
+      localStorage.setItem('mdp:name', fileName);
+    } catch (e) { /* storage unavailable: fine */ }
+  }
+  function loadDraft() {
+    try {
+      const d = localStorage.getItem('mdp:draft');
+      if (d !== null) {
+        source.value = d;
+        setFileName(localStorage.getItem('mdp:name') || 'Untitled.md');
+        return true;
+      }
+    } catch (e) { /* ignore */ }
+    return false;
+  }
+  function setFileName(n) {
+    fileName = n || 'Untitled.md';
+    fileNameEl.textContent = fileName;
+  }
+
+  // ---------- file input / drag & drop ----------
+  function openFile(file) {
+    if (!file) return;
+    const okName = /\.(md|markdown|mdown|txt)$/i.test(file.name);
+    const okType = /^text\//.test(file.type) || file.type === '';
+    if (!okName && !okType) {
+      say('That is not a markdown or text file.', true);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      source.value = String(reader.result || '');
+      setFileName(file.name);
+      render();
+      saveDraft();
+      say(`Opened ${file.name}`);
+      previewScroll.scrollTop = 0;
+      source.scrollTop = 0;
+    };
+    reader.onerror = () => say('Could not read that file.', true);
+    reader.readAsText(file);
+  }
+
+  $('uploadBtn').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (e) => {
+    openFile(e.target.files && e.target.files[0]);
+    e.target.value = '';
+  });
+
+  let dragDepth = 0;
+  editorBody.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; editorBody.classList.add('dragging'); });
+  editorBody.addEventListener('dragover', (e) => { e.preventDefault(); });
+  editorBody.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) editorBody.classList.remove('dragging'); });
+  editorBody.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    editorBody.classList.remove('dragging');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) openFile(f);
+  });
+
+  // Paste: if the clipboard carries a file, open it; otherwise let the text through.
+  source.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.files;
+    if (items && items.length) { e.preventDefault(); openFile(items[0]); }
+  });
+
+  // ---------- editor events ----------
+  source.addEventListener('input', scheduleRender);
+  source.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = source.selectionStart, en = source.selectionEnd;
+      source.setRangeText('  ', s, en, 'end');
+      scheduleRender();
+    }
+  });
+
+  // Proportional scroll sync, editor to preview
+  let syncing = false;
+  source.addEventListener('scroll', () => {
+    if (syncing) return;
+    const max = source.scrollHeight - source.clientHeight;
+    if (max <= 0) return;
+    const ratio = source.scrollTop / max;
+    syncing = true;
+    previewScroll.scrollTop = ratio * (previewScroll.scrollHeight - previewScroll.clientHeight);
+    requestAnimationFrame(() => { syncing = false; });
+  });
+
+  $('clearBtn').addEventListener('click', () => {
+    source.value = '';
+    setFileName('Untitled.md');
+    render();
+    saveDraft();
+    source.focus();
+  });
+  $('sampleBtn').addEventListener('click', () => {
+    source.value = SAMPLE;
+    setFileName('sample.md');
+    render();
+    saveDraft();
+    previewScroll.scrollTop = 0;
+  });
+
+  // ---------- mobile pane switch ----------
+  function setView(v) {
+    document.body.dataset.view = v;
+    $('viewWrite').setAttribute('aria-pressed', String(v === 'write'));
+    $('viewRead').setAttribute('aria-pressed', String(v === 'read'));
+  }
+  $('viewWrite').addEventListener('click', () => setView('write'));
+  $('viewRead').addEventListener('click', () => setView('read'));
+
+  // ---------- resizable divider ----------
+  const divider = $('divider');
+  const work = document.querySelector('.work');
+  let dragging = false;
+  divider.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    divider.classList.add('active');
+    divider.setPointerCapture(e.pointerId);
+  });
+  divider.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const rect = work.getBoundingClientRect();
+    let pct = ((e.clientX - rect.left) / rect.width) * 100;
+    pct = Math.min(75, Math.max(25, pct));
+    document.documentElement.style.setProperty('--editor-w', pct + '%');
+  });
+  const endDrag = () => { dragging = false; divider.classList.remove('active'); };
+  divider.addEventListener('pointerup', endDrag);
+  divider.addEventListener('pointercancel', endDrag);
+  divider.addEventListener('keydown', (e) => {
+    const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--editor-w')) || 46;
+    if (e.key === 'ArrowLeft') document.documentElement.style.setProperty('--editor-w', Math.max(25, cur - 2) + '%');
+    if (e.key === 'ArrowRight') document.documentElement.style.setProperty('--editor-w', Math.min(75, cur + 2) + '%');
+  });
+
+  // ---------- PDF export ----------
+  let downloadsNs = undefined; // undefined = not resolved yet, null = unavailable
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then((ns) => { downloadsNs = ns; }).catch(() => { downloadsNs = null; });
+  } else {
+    downloadsNs = null;
+  }
+
+  function pdfName() {
+    const base = fileName.replace(/\.(md|markdown|mdown|txt)$/i, '') || 'document';
+    return base + '.pdf';
+  }
+
+  async function buildPdfBlob() {
+    const sheet = document.createElement('div');
+    sheet.className = 'sheet';
+    const art = document.createElement('article');
+    art.className = 'md';
+    art.innerHTML = preview.innerHTML;
+    sheet.appendChild(art);
+    document.body.appendChild(sheet);
+    try {
+      if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
+      const blob = await html2pdf()
+        .set({
+          margin: [16, 16, 18, 16],
+          image: { type: 'jpeg', quality: 0.96 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, windowWidth: 740 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['css', 'legacy'] }
+        })
+        .from(sheet)
+        .toPdf()
+        .output('blob');
+      return blob;
+    } finally {
+      sheet.remove();
+    }
+  }
+
+  exportBtn.addEventListener('click', async () => {
+    if (!source.value.trim()) { say('Nothing to export yet.', true); return; }
+    exportBtn.disabled = true;
+    const labels = exportBtn.querySelectorAll('span');
+    const old = Array.from(labels).map((s) => s.textContent);
+    labels.forEach((s) => { s.textContent = 'Preparing…'; });
+    try {
+      if (downloadsNs === undefined) {
+        // Give the runtime a moment to answer before deciding.
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      if (downloadsNs) {
+        const blob = await buildPdfBlob();
+        await downloadsNs.save({ filename: pdfName(), data: blob });
+        say('PDF saved');
+      } else {
+        // Standalone hosting (GitHub Pages, local file): hand the PDF straight to the browser's download.
+        const blob = await buildPdfBlob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = pdfName();
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        say('PDF downloaded');
+      }
+    } catch (err) {
+      const code = err && err.code;
+      if (code === 'declined') { say('Export cancelled'); }
+      else if (code === 'rate_limited') { say('A save prompt is already open. Try again in a moment.', true); }
+      else if (code === 'too_large') { say('This PDF is too large to save here. Try exporting a shorter document.', true); }
+      else { say('Could not export the PDF. ' + (err && err.message ? err.message : ''), true); console.error(err); }
+    } finally {
+      exportBtn.disabled = false;
+      labels.forEach((s, i) => { s.textContent = old[i]; });
+    }
+  });
+
+  // ---------- init ----------
+  if (!loadDraft()) {
+    source.value = SAMPLE;
+    setFileName('sample.md');
+  }
+  render();
+})();
+</script>
+</body>
+</html>
