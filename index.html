@@ -370,12 +370,11 @@
   .hljs-emphasis { font-style: italic; }
   .hljs-strong { font-weight: 600; }
 
-  /* Off-screen sheet used for PDF rendering: always light, fixed width */
+  /* Sheet used for PDF rendering: always light. It is never placed in the page;
+     html2pdf copies it into its own A4-wide container, so it must stay in normal
+     flow (no absolute positioning, no fixed width) or the capture comes out blank. */
   .sheet {
-    position: absolute;
-    left: -10000px;
-    top: 0;
-    width: 740px;
+    color-scheme: light;
     background: #ffffff;
     color: #1b2430;
     --ink: #1b2430;
@@ -760,24 +759,22 @@ Export this as a PDF with the button at the top. The layout is laid out for A4 w
     art.className = 'md';
     art.innerHTML = preview.innerHTML;
     sheet.appendChild(art);
-    document.body.appendChild(sheet);
-    try {
-      if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
-      const blob = await html2pdf()
-        .set({
-          margin: [16, 16, 18, 16],
-          image: { type: 'jpeg', quality: 0.96 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, windowWidth: 740 },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-          pagebreak: { mode: ['css', 'legacy'] }
-        })
-        .from(sheet)
-        .toPdf()
-        .output('blob');
-      return blob;
-    } finally {
-      sheet.remove();
-    }
+    if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
+    // html2canvas crops at the position it measures in the real window, so anything that
+    // makes the copy lay out elsewhere shifts the capture. Hence no windowWidth (it lays the
+    // copy out in a window of that width) and scroll pinned to 0 (html2pdf's container is
+    // position: fixed and ignores page scroll, which can be non-zero when the bar overflows).
+    return html2pdf()
+      .set({
+        margin: [16, 16, 18, 16],
+        image: { type: 'jpeg', quality: 0.96 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0 },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] }
+      })
+      .from(sheet)
+      .toPdf()
+      .output('blob');
   }
 
   exportBtn.addEventListener('click', async () => {
