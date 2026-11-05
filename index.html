@@ -393,7 +393,7 @@
   }
   .sheet .md { padding: 0; max-width: none; font-size: 14.5px; }
   .sheet .md pre { white-space: pre-wrap; word-break: break-word; }
-  .sheet .md h1, .sheet .md h2, .sheet .md h3, .sheet .md pre, .sheet .md table, .sheet .md img, .sheet .md blockquote { break-inside: avoid; page-break-inside: avoid; }
+  /* Page breaks in the PDF are chosen in script (measurePdfUnits / planPdfCuts), not by CSS */
 
   /* Responsive */
   @media (max-width: 820px) {
@@ -774,6 +774,121 @@ Export this as a PDF with the button at the top. The layout is laid out for A4 w
     return base + '.pdf';
   }
 
+  // Page breaks. html2pdf captures the document as one tall canvas and cuts it every page
+  // height, wherever that falls, so lines of text were sliced in half and headings left at
+  // the foot of a page. Instead: measure where each line and each unsplittable block sits in
+  // html2pdf's container, cut each page in a gap between them, and hand html2pdf a canvas
+  // re-laid out at one page per page height, so its own fixed cuts land on ours.
+  const PDF_SCALE = 2;
+  const PDF_CUT_CLEARANCE = 2; // CSS px left above the next line, clear of accents and borders
+
+  // Lines of text and blocks that should not be split, top to bottom, in CSS px from the top
+  // of the container. A heading is marked to stay with what follows it. A code block, table
+  // or quote taller than a page is broken into its rows or lines instead.
+  function measurePdfUnits(container, pageHeight) {
+    const origin = container.getBoundingClientRect().top;
+    const units = [];
+    const range = document.createRange();
+    function add(rect, keepWithNext) {
+      if (rect.height > 0) units.push({ top: rect.top - origin, bottom: rect.bottom - origin, keepWithNext: !!keepWithNext });
+    }
+    function walk(node) {
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          if (!/\S/.test(child.nodeValue)) continue;
+          range.selectNodeContents(child);
+          for (const r of range.getClientRects()) add(r); // one rect per line
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          visit(child);
+        }
+      }
+    }
+    function visit(el) {
+      if (/^H[1-6]$/.test(el.tagName)) { add(el.getBoundingClientRect(), true); return; }
+      if (el.matches('pre, table, blockquote, img, hr, input')) {
+        const r = el.getBoundingClientRect();
+        if (r.height <= pageHeight || el.matches('img, hr, input')) { add(r); return; }
+        if (el.tagName === 'TABLE') { el.querySelectorAll('tr').forEach((tr) => add(tr.getBoundingClientRect())); return; }
+        // A code block or quote split between lines: its top and bottom padding stay with its
+        // first and last lines (these bands overlap them), so no sliver of its box is left over.
+        const cs = getComputedStyle(el);
+        const head = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop) + 6;
+        const foot = parseFloat(cs.borderBottomWidth) + parseFloat(cs.paddingBottom) + 6;
+        add({ top: r.top, bottom: r.top + head, height: head });
+        add({ top: r.bottom - foot, bottom: r.bottom, height: foot });
+      }
+      if (el.tagName === 'CODE' && !el.closest('pre')) {
+        for (const r of el.getClientRects()) add(r); // inline code's padded background
+      }
+      walk(el);
+    }
+    walk(container);
+    return units.sort((a, b) => a.top - b.top);
+  }
+
+  // Where to cut the canvas (canvas px): as low on each page as possible, in a gap between
+  // units, and not straight after a heading. A unit taller than a page (a huge image) has to
+  // be split somewhere, so it is split at the page height. Otherwise, with no gap left that
+  // keeps headings with what follows, a heading may end a page; with no gap at all, the cut
+  // falls at the page height.
+  function planPdfCuts(units, scale, pageHeight, fullHeight) {
+    const bands = []; // units merged where they overlap (pieces of one line)
+    for (const u of units) {
+      // Round both edges alike, so table rows that touch stay separate bands
+      const top = Math.round(u.top * scale), bottom = Math.round(u.bottom * scale);
+      const last = bands[bands.length - 1];
+      if (last && top < last.bottom) {
+        last.bottom = Math.max(last.bottom, bottom);
+        last.keepWithNext = last.keepWithNext || u.keepWithNext;
+      } else {
+        bands.push({ top, bottom, keepWithNext: u.keepWithNext });
+      }
+    }
+    // Paginate up to the end of the content: trailing margin alone must not start a page
+    const end = bands.length ? bands[bands.length - 1].bottom : fullHeight;
+    const clearance = PDF_CUT_CLEARANCE * scale;
+    const cuts = [];
+    let pageTop = 0;
+    let limit = 0;
+    function lowestGap(keepHeadings) {
+      let cut = 0;
+      for (let i = 0; i < bands.length - 1 && bands[i].bottom <= limit; i++) {
+        if (keepHeadings && bands[i].keepWithNext) continue;
+        const c = Math.min(limit, Math.max(bands[i].bottom, bands[i + 1].top - clearance));
+        if (c > pageTop) cut = c;
+      }
+      return cut;
+    }
+    while (end - pageTop > pageHeight) {
+      limit = pageTop + pageHeight;
+      const straddler = bands.find((b) => b.top < limit && b.bottom > limit);
+      const cut = straddler && straddler.bottom - straddler.top > pageHeight
+        ? limit
+        : lowestGap(true) || lowestGap(false) || limit;
+      cuts.push(cut);
+      pageTop = cut;
+    }
+    return cuts;
+  }
+
+  // The canvas re-laid out so that each slice starts exactly one page height below the last.
+  // The last slice is trimmed to a page, dropping trailing margin that would start a blank one.
+  function paginateCanvas(canvas, cuts, pageHeight) {
+    if (canvas.height <= pageHeight) return canvas;
+    const starts = [0, ...cuts];
+    const heights = starts.map((start, i) => Math.min(pageHeight, (i < cuts.length ? cuts[i] : canvas.height) - start));
+    const out = document.createElement('canvas');
+    out.width = canvas.width;
+    out.height = pageHeight * cuts.length + heights[heights.length - 1];
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, out.width, out.height);
+    starts.forEach((start, i) => {
+      ctx.drawImage(canvas, 0, start, canvas.width, heights[i], 0, i * pageHeight, canvas.width, heights[i]);
+    });
+    return out;
+  }
+
   async function buildPdfBlob() {
     const sheet = document.createElement('div');
     sheet.className = 'sheet';
@@ -782,19 +897,33 @@ Export this as a PDF with the button at the top. The layout is laid out for A4 w
     art.innerHTML = preview.innerHTML;
     sheet.appendChild(art);
     if (document.fonts && document.fonts.ready) { await document.fonts.ready; }
+    let units = [];
     // html2canvas crops at the position it measures in the real window, so anything that
     // makes the copy lay out elsewhere shifts the capture. Hence no windowWidth (it lays the
     // copy out in a window of that width) and scroll pinned to 0 (html2pdf's container is
     // position: fixed and ignores page scroll, which can be non-zero when the bar overflows).
+    // The .then() callbacks run with the html2pdf worker as `this`.
     return html2pdf()
       .set({
         margin: [16, 16, 18, 16],
         image: { type: 'jpeg', quality: 0.96 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0 },
+        html2canvas: { scale: PDF_SCALE, useCORS: true, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0 },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'] }
+        pagebreak: { mode: [] } // its spacers would fight the cuts planned below
       })
       .from(sheet)
+      .toContainer()
+      .then(function () {
+        // Measure before toCanvas: it removes the container once captured.
+        units = measurePdfUnits(this.prop.container, this.prop.pageSize.inner.px.height);
+      })
+      .toCanvas()
+      .then(function () {
+        const canvas = this.prop.canvas;
+        const pageHeight = Math.floor(canvas.width * this.prop.pageSize.inner.ratio); // as toPdf slices
+        const cuts = planPdfCuts(units, PDF_SCALE, pageHeight, canvas.height);
+        this.prop.canvas = paginateCanvas(canvas, cuts, pageHeight);
+      })
       .toPdf()
       .output('blob');
   }

@@ -25,6 +25,13 @@ A single-page markdown previewer: the whole app is `index.html` (CSS in one `<st
 - `.sheet` must stay in normal flow. Absolute positioning (an old off-screen trick) or a fixed width collapses or clips the capture, and the PDF comes out blank.
 - html2canvas crops at the position it measures in the real window, so it must lay the copy out exactly where it sits there. Keep `windowWidth` unset and `scrollX`/`scrollY` at 0, or the capture shifts sideways.
 
+**PDF page breaks are planned in script.** html2pdf captures one tall canvas and cuts it every page height, which slices lines of text in half. Instead, `buildPdfBlob()` breaks html2pdf's chain into steps:
+1. After `toContainer()`, `measurePdfUnits()` records where every text line and every block that shouldn't split sits. Blocks that shouldn't split are headings, code, tables, quotes and images; one taller than a page is split by rows or lines instead.
+2. After `toCanvas()`, `planPdfCuts()` cuts each page at the lowest gap between them, never straight after a heading.
+3. `paginateCanvas()` re-lays the canvas at one page per page height, so `toPdf()`'s fixed cuts land on the planned ones.
+
+html2pdf's own `pagebreak` is off (`mode: []`), because its spacers would fight the planned cuts. The `.then()` callbacks get the worker as `this`, which is how they reach `this.prop.container`, `this.prop.canvas` and `this.prop.pageSize`. To check a change, export a long document and look at every page boundary for cut lines, headings left at the foot of a page, and blank pages.
+
 The blob is then saved one of two ways, and both must keep working:
 - inside a Claude artifact, through `window.claude.use('downloads')` and `downloadsNs.save(...)`, which can fail with the codes `declined`, `rate_limited` and `too_large`;
 - anywhere else (local file, GitHub Pages), through an object-URL `<a download>` click.
