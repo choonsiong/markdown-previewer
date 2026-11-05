@@ -119,6 +119,10 @@
     letter-spacing: -0.01em;
     margin-right: auto;
     white-space: nowrap;
+    /* Give way to the controls if the bar runs short, instead of pushing them off-screen */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .brand small {
     display: block;
@@ -155,6 +159,7 @@
   /* Mobile pane switch */
   .switch {
     display: none;
+    flex: none; /* overflow: hidden lets a flex item shrink to nothing; never let it */
     border: 1px solid var(--line);
     border-radius: 6px;
     overflow: hidden;
@@ -402,6 +407,23 @@
     body[data-view="write"] .pane.preview { display: none; }
     body[data-view="read"] .pane.editor { display: none; }
     .md { padding: 24px 18px 80px; font-size: 16px; }
+  }
+  /* Phones: the name doesn't fit beside the controls (the page title still names the app) */
+  @media (max-width: 580px) {
+    .brand { display: none; }
+    .switch { margin-right: auto; }
+  }
+  /* Narrowest phones: Upload shows only its icon; its label stays for screen readers */
+  @media (max-width: 380px) {
+    #uploadBtn { position: relative; padding-inline: 10px; }
+    #uploadBtn .label-short {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
