@@ -774,6 +774,40 @@ Export this as a PDF with the button at the top. The layout is laid out for A4 w
     return base + '.pdf';
   }
 
+  // html2canvas 1.x reads only hex, rgb() and hsl() colours and throws on newer forms such as
+  // oklab(). Safari reports oklab() for a disabled checkbox (task lists), and raw HTML in the
+  // markdown can bring any colour. So, on the PDF copy only, every colour html2canvas reads is
+  // rewritten as rgba() inline, converted by painting it into a 1px canvas.
+  const H2C_COLOR_PROPS = ['color', 'background-color', 'background-image', 'border-top-color', 'border-right-color',
+    'border-bottom-color', 'border-left-color', 'box-shadow', 'text-shadow', 'text-decoration-color', '-webkit-text-stroke-color'];
+  const MODERN_COLOR = /\b(?:oklab|oklch|lab|lch|color)\((?:[^()]|\([^()]*\))*\)/g;
+
+  function flattenModernColors(root) {
+    const probe = document.createElement('canvas');
+    probe.width = probe.height = 1;
+    const ctx = probe.getContext('2d', { willReadFrequently: true });
+    const cache = new Map();
+    function toRgba(color) {
+      if (!cache.has(color)) {
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = '#000';
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        cache.set(color, `rgba(${r}, ${g}, ${b}, ${+(a / 255).toFixed(3)})`);
+      }
+      return cache.get(color);
+    }
+    for (const el of [root, ...root.querySelectorAll('*')]) {
+      const cs = getComputedStyle(el);
+      for (const prop of H2C_COLOR_PROPS) {
+        const value = cs.getPropertyValue(prop);
+        const flat = value.replace(MODERN_COLOR, toRgba);
+        if (flat !== value) el.style.setProperty(prop, flat, 'important');
+      }
+    }
+  }
+
   // Page breaks. html2pdf captures the document as one tall canvas and cuts it every page
   // height, wherever that falls, so lines of text were sliced in half and headings left at
   // the foot of a page. Instead: measure where each line and each unsplittable block sits in
@@ -903,29 +937,36 @@ Export this as a PDF with the button at the top. The layout is laid out for A4 w
     // copy out in a window of that width) and scroll pinned to 0 (html2pdf's container is
     // position: fixed and ignores page scroll, which can be non-zero when the bar overflows).
     // The .then() callbacks run with the html2pdf worker as `this`.
-    return html2pdf()
-      .set({
-        margin: [16, 16, 18, 16],
-        image: { type: 'jpeg', quality: 0.96 },
-        html2canvas: { scale: PDF_SCALE, useCORS: true, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: [] } // its spacers would fight the cuts planned below
-      })
-      .from(sheet)
-      .toContainer()
-      .then(function () {
-        // Measure before toCanvas: it removes the container once captured.
-        units = measurePdfUnits(this.prop.container, this.prop.pageSize.inner.px.height);
-      })
-      .toCanvas()
-      .then(function () {
-        const canvas = this.prop.canvas;
-        const pageHeight = Math.floor(canvas.width * this.prop.pageSize.inner.ratio); // as toPdf slices
-        const cuts = planPdfCuts(units, PDF_SCALE, pageHeight, canvas.height);
-        this.prop.canvas = paginateCanvas(canvas, cuts, pageHeight);
-      })
-      .toPdf()
-      .output('blob');
+    try {
+      return await html2pdf()
+        .set({
+          margin: [16, 16, 18, 16],
+          image: { type: 'jpeg', quality: 0.96 },
+          html2canvas: { scale: PDF_SCALE, useCORS: true, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: [] } // its spacers would fight the cuts planned below
+        })
+        .from(sheet)
+        .toContainer()
+        .then(function () {
+          // Work on the container before toCanvas: it removes the container once captured.
+          flattenModernColors(this.prop.container);
+          units = measurePdfUnits(this.prop.container, this.prop.pageSize.inner.px.height);
+        })
+        .toCanvas()
+        .then(function () {
+          const canvas = this.prop.canvas;
+          const pageHeight = Math.floor(canvas.width * this.prop.pageSize.inner.ratio); // as toPdf slices
+          const cuts = planPdfCuts(units, PDF_SCALE, pageHeight, canvas.height);
+          this.prop.canvas = paginateCanvas(canvas, cuts, pageHeight);
+        })
+        .toPdf()
+        .output('blob');
+    } finally {
+      // html2pdf removes its overlay only after a successful capture. If anything fails before
+      // that, the invisible full-screen overlay would stay and swallow every click on the page.
+      document.querySelectorAll('.html2pdf__overlay').forEach((o) => o.remove());
+    }
   }
 
   exportBtn.addEventListener('click', async () => {

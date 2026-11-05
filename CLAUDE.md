@@ -24,6 +24,8 @@ A single-page markdown previewer: the whole app is `index.html` (CSS in one `<st
 **PDF export.** `buildPdfBlob()` copies the preview's HTML into a detached `.sheet` (always light, with its own hard-coded colours) and renders it to an A4 blob with html2pdf.js. html2pdf clones that element into its own fixed, A4-wide container and has html2canvas capture the container, which makes the export fragile in two ways:
 - `.sheet` must stay in normal flow. Absolute positioning (an old off-screen trick) or a fixed width collapses or clips the capture, and the PDF comes out blank.
 - html2canvas crops at the position it measures in the real window, so it must lay the copy out exactly where it sits there. Keep `windowWidth` unset and `scrollX`/`scrollY` at 0, or the capture shifts sideways.
+- html2canvas 1.x throws on colours other than hex, `rgb()` and `hsl()`. Safari reports `oklab()` for a disabled checkbox (task lists), and raw HTML in the markdown can bring `oklch()` or `color-mix()` in any browser. `flattenModernColors()` rewrites them as `rgba()` on the PDF copy before capture.
+- If the capture fails, html2pdf leaves its invisible full-screen overlay behind, and it swallows every click. `buildPdfBlob()` removes it in a `finally`; keep that.
 
 **PDF page breaks are planned in script.** html2pdf captures one tall canvas and cuts it every page height, which slices lines of text in half. Instead, `buildPdfBlob()` breaks html2pdf's chain into steps:
 1. After `toContainer()`, `measurePdfUnits()` records where every text line and every block that shouldn't split sits. Blocks that shouldn't split are headings, code, tables, quotes and images; one taller than a page is split by rows or lines instead.
