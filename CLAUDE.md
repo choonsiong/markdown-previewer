@@ -11,6 +11,7 @@ A single-page markdown previewer: the whole app is `index.html` (CSS in one `<st
 - Run: open `index.html` in a browser. Nothing to install. For automated browser checks, serve the folder over HTTP (`python3 -m http.server`), because Playwright blocks `file:` URLs.
 - There are no automated tests. Check a change in a browser: type or paste markdown, load the sample, upload or drag in a `.md` file, export a PDF, and look at it in both light and dark system themes and at a phone width (820px or less).
 - Deployment is GitHub Pages serving `index.html` from the repository root of the default branch (see README), so `index.html` must stay at the root, with `favicon.svg` beside it (it is linked by a relative path).
+- Releases: after a pull request merges, tag the default branch's head `vX.Y.Z` and push the tag. `.github/workflows/release.yml` then publishes the "vX.Y.Z release" GitHub release with generated notes, and fails if the tag is not on the default branch. A release builds and deploys nothing: GitHub Pages serves the default branch as soon as a pull request merges.
 
 ## How the page works
 
